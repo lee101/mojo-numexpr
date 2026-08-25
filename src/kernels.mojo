@@ -1,6 +1,6 @@
 """Fused SIMD bytecode evaluator for NumExpr-style array expressions."""
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.math import (
     abs,
     acos,
@@ -306,7 +306,7 @@ def execute_chunk[width: Int](
     ndim: Int,
     index: Int,
 ) -> SIMD[DType.float64, width]:
-    var stack = InlineArray[SIMD[DType.float64, width], MAX_STACK](
+    var stack = Array[SIMD[DType.float64, width], MAX_STACK](
         fill=SIMD[DType.float64, width](0.0)
     )
     var sp = 0
