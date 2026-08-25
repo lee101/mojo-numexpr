@@ -180,6 +180,7 @@ class Program:
     constants: np.ndarray
     result_bool: bool
     boolean_inputs: tuple[str, ...]
+    specialized: str | None
 
 
 class _Compiler:
@@ -223,6 +224,7 @@ class _Compiler:
             np.ascontiguousarray(constants, dtype=np.float64),
             result_bool,
             tuple(sorted(self.boolean_inputs)),
+            _SPECIALIZED_CODES.get(tuple(code)),
         )
 
     def require_boolean(self, node: ast.AST, is_boolean: bool, message: str) -> None:
@@ -460,8 +462,6 @@ def execute(
     native_shape = logical_shape or (1,)
     if len(native_shape) > 8:
         raise ValueError("at most 8 broadcast dimensions are supported")
-    addresses, dtypes, strides = _metadata(arrays, native_shape)
-    shape = np.ascontiguousarray(native_shape, dtype=np.int64)
     dtype = np.bool_ if program.result_bool else np.float64
     if out is not None:
         if not isinstance(out, np.ndarray):
@@ -478,9 +478,7 @@ def execute(
         and out.flags.c_contiguous
     )
     result = out if use_out_directly else np.empty(native_shape, dtype=dtype, order="C")
-    flat_code = program.code
-    code_key = tuple(map(tuple, flat_code.tolist()))
-    specialized = _SPECIALIZED_CODES.get(code_key)
+    specialized = program.specialized
     can_specialize = (
         specialized is not None
         and not program.result_bool
@@ -509,6 +507,8 @@ def execute(
                 np.copyto(out, result, casting=casting)
             return out
         return result
+    addresses, dtypes, strides = _metadata(arrays, native_shape)
+    shape = np.ascontiguousarray(native_shape, dtype=np.int64)
     status = lib().mne_evaluate(
         addr(program.code),
         program.code.shape[0],

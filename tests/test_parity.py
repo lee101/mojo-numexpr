@@ -156,6 +156,24 @@ def test_specialized_simd_tail(expression):
     parity(expression, values)
 
 
+def test_specialized_path_skips_broadcast_metadata(monkeypatch):
+    values = {
+        "a": np.linspace(0.1, 1.1, 37),
+        "b": np.linspace(0.2, 1.2, 37),
+        "c": np.linspace(-1.0, 1.0, 37),
+    }
+
+    def unexpected_metadata(*args, **kwargs):
+        raise AssertionError("specialized kernels do not need broadcast metadata")
+
+    monkeypatch.setattr(compiler, "_metadata", unexpected_metadata)
+    actual = ne.evaluate("sin(a) + cos(b) + exp(-abs(c))", local_dict=values)
+    expected = upstream.evaluate(
+        "sin(a) + cos(b) + exp(-abs(c))", local_dict=values
+    )
+    assert np.allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
 def test_specialized_parallel_threshold():
     previous_threads = ne.get_num_threads()
     previous_pool = compiler._pool

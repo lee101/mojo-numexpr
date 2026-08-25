@@ -92,16 +92,19 @@ mojo-numexpr is slower.
 
 | expression | mojo-numexpr | numexpr 2.14.2 | NumPy | vs numexpr |
 | --- | ---: | ---: | ---: | ---: |
-| multiply-add | 17.57 ms | 15.89 ms | 65.39 ms | 0.90x slower |
-| 8-op polynomial | 10.99 ms | 17.85 ms | 182.18 ms | 1.62x faster |
-| transcendental | 33.82 ms | 25.25 ms | 403.76 ms | 0.75x slower |
-| conditional | 11.10 ms | 11.99 ms | 167.86 ms | 1.08x faster |
+| multiply-add | 8.86 ms | 18.33 ms | 47.16 ms | 2.07x faster |
+| 8-op polynomial | 8.10 ms | 23.32 ms | 186.88 ms | 2.88x faster |
+| transcendental | 23.57 ms | 31.56 ms | 299.74 ms | 1.34x faster |
+| conditional | 7.56 ms | 22.46 ms | 118.29 ms | 2.97x faster |
 
-The polynomial and conditional kernels are faster than upstream NumExpr on this run;
-multiply-add and transcendental are slower. All four are faster than the equivalent
-ordinary NumPy
-expressions because the fused kernels do not materialize operator intermediates.
-These are single-machine microbenchmarks, not general performance claims.
+All four specialized kernels are faster than upstream NumExpr and ordinary NumPy on
+this run. The fused kernels do not materialize operator intermediates. These are
+single-machine microbenchmarks, not general performance claims.
+
+The transcendental expression has enough arithmetic intensity to consider GPU
+execution, but no GPU path is shipped. The pinned Mojo NVIDIA backend does not support
+`float64` `cos`; using `float32` instead would violate the existing parity tolerance.
+CPU remains the only execution path rather than silently reducing precision.
 
 ## How it works
 
@@ -110,7 +113,10 @@ operator/function whitelist. It never calls Python `eval`. The compiler lowers t
 expression to postfix instructions, records variable names and constants, validates a
 64-value maximum stack and a 256-instruction maximum program, then caches the plan.
 The benchmark multiply-add, polynomial, transcendental, and conditional plans dispatch
-to direct SIMD kernels. Other covered expressions use the general fused evaluator.
+to direct SIMD kernels. Specialization is resolved once when the expression is
+compiled, and these kernels skip the broadcast address, dtype, stride, and shape
+metadata allocations required by the general evaluator. Other covered expressions use
+the general fused evaluator.
 
 Python owns all memory. Inputs are made C-contiguous only when necessary and otherwise
 cross the FFI without a copy. NumPy supplies output storage, and a compatible `out`
