@@ -6,7 +6,6 @@ import ast
 import inspect
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -106,8 +105,8 @@ _SUPPORTED_DTYPES = {
     np.dtype(np.uint8): 4,
     np.dtype(np.bool_): 4,
 }
-_PARALLEL_ELEMENTS = 1_048_576
-_pool: ThreadPoolExecutor | None = None
+
+
 _SPECIALIZED_CODES = {
     (
         (LOAD_VAR, 0),
@@ -401,39 +400,14 @@ def _run_specialized(
     nthreads: int,
     worker_limit: int,
 ) -> None:
-    workers = min(nthreads, worker_limit, os.cpu_count() or 1)
-    if n < _PARALLEL_ELEMENTS or workers <= 1:
-        kernel(
-            addr(arrays[0]),
-            addr(arrays[1]),
-            addr(arrays[2]),
-            addr(result),
-            n,
-            1,
-        )
-        return
-
-    global _pool
-    if _pool is None:
-        _pool = ThreadPoolExecutor(max_workers=os.cpu_count() or 1)
-    elements_per_worker = (n // workers // 32) * 32
-    futures = []
-    for worker in range(workers):
-        start = worker * elements_per_worker
-        end = n if worker == workers - 1 else start + elements_per_worker
-        futures.append(
-            _pool.submit(
-                kernel,
-                addr(arrays[0]) + start * 8,
-                addr(arrays[1]) + start * 8,
-                addr(arrays[2]) + start * 8,
-                addr(result) + start * result.itemsize,
-                end - start,
-                1,
-            )
-        )
-    for future in futures:
-        future.result()
+    del nthreads, worker_limit
+    kernel(
+        addr(arrays[0]),
+        addr(arrays[1]),
+        addr(arrays[2]),
+        addr(result),
+        n,
+    )
 
 
 def execute(
@@ -520,8 +494,8 @@ def execute(
         len(native_shape),
         addr(result),
         int(program.result_bool),
+        0,
         math.prod(native_shape),
-        nthreads,
     )
     if status:
         raise RuntimeError(f"Mojo evaluator failed with status {status}")

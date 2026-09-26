@@ -42,13 +42,13 @@ def lib() -> ctypes.CDLL:
         _library = ctypes.CDLL(LIB)
         _library.mne_evaluate.argtypes = [I] * 12
         _library.mne_evaluate.restype = I
-        _library.mne_mul_add_f64.argtypes = [I] * 6
+        _library.mne_mul_add_f64.argtypes = [I] * 5
         _library.mne_mul_add_f64.restype = None
-        _library.mne_polynomial_f64.argtypes = [I] * 6
+        _library.mne_polynomial_f64.argtypes = [I] * 5
         _library.mne_polynomial_f64.restype = None
-        _library.mne_transcendental_f64.argtypes = [I] * 6
+        _library.mne_transcendental_f64.argtypes = [I] * 5
         _library.mne_transcendental_f64.restype = None
-        _library.mne_conditional_f64.argtypes = [I] * 6
+        _library.mne_conditional_f64.argtypes = [I] * 5
         _library.mne_conditional_f64.restype = None
     return _library
 

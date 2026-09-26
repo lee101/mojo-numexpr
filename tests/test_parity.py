@@ -174,37 +174,14 @@ def test_specialized_path_skips_broadcast_metadata(monkeypatch):
     assert np.allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
-def test_specialized_parallel_threshold():
-    previous_threads = ne.get_num_threads()
-    previous_pool = compiler._pool
-    compiler._pool = None
-    try:
-        ne.set_num_threads(min(4, ne.detect_number_of_cores()))
-        below = compiler._PARALLEL_ELEMENTS - 1
-        below_values = {
-            "a": np.linspace(0.1, 1.1, below),
-            "b": np.linspace(0.2, 1.2, below),
-            "c": np.linspace(-1.0, 1.0, below),
-        }
-        ne.evaluate(
-            "a + b*c + a*a - b*b + c*c*0.25",
-            local_dict=below_values,
-        )
-        assert compiler._pool is None
-
-        size = compiler._PARALLEL_ELEMENTS + 17
-        values = {
-            "a": np.linspace(0.1, 1.1, size),
-            "b": np.linspace(0.2, 1.2, size),
-            "c": np.linspace(-1.0, 1.0, size),
-        }
-        parity("a + b*c + a*a - b*b + c*c*0.25", values)
-        assert compiler._pool is not None
-    finally:
-        if compiler._pool is not None:
-            compiler._pool.shutdown()
-        compiler._pool = previous_pool
-        ne.set_num_threads(previous_threads)
+@pytest.mark.parametrize("size", [1_048_575, 1_048_576, 1_048_593])
+def test_specialized_kernel_matches_upstream_around_the_old_chunk_boundary(size):
+    values = {
+        "a": np.linspace(0.1, 1.1, size),
+        "b": np.linspace(0.2, 1.2, size),
+        "c": np.linspace(-1.0, 1.0, size),
+    }
+    parity("a + b*c + a*a - b*b + c*c*0.25", values)
 
 
 def test_float32_input_values():

@@ -1,6 +1,5 @@
 """Fused SIMD bytecode evaluator for NumExpr-style array expressions."""
 
-from max.algorithm import parallelize
 from std.math import (
     abs,
     acos,
@@ -26,7 +25,7 @@ from std.math import (
     tan,
     tanh,
 )
-from std.sys.info import num_physical_cores, simd_width_of as simdwidthof
+from std.sys.info import simd_width_of as simdwidthof
 
 comptime F64Ptr = UnsafePointer[Float64, AnyOrigin[mut=True]]
 comptime F32Ptr = UnsafePointer[Float32, AnyOrigin[mut=True]]
@@ -35,7 +34,6 @@ comptime I32Ptr = UnsafePointer[Int32, AnyOrigin[mut=True]]
 comptime U8Ptr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
 comptime W = simdwidthof[DType.float64]()
 comptime MAX_STACK = 64
-comptime PARALLEL_ELEMENTS = 262_144
 
 
 @export("mne_mul_add_f64")
@@ -45,58 +43,40 @@ def mne_mul_add_f64(
     c_addr: Int,
     dst_addr: Int,
     n: Int,
-    requested_workers: Int,
 ) abi("C"):
     var a = F64Ptr(unsafe_from_address=a_addr)
     var b = F64Ptr(unsafe_from_address=b_addr)
     var c = F64Ptr(unsafe_from_address=c_addr)
     var destination = F64Ptr(unsafe_from_address=dst_addr)
-    var workers = min(requested_workers, num_physical_cores())
-    if n < PARALLEL_ELEMENTS:
-        workers = 1
-    workers = max(workers, 1)
-
-    @parameter
-    def process(worker: Int):
-        var vectors = n // W
-        var start = (worker * vectors // workers) * W
-        var end = ((worker + 1) * vectors // workers) * W
-        if worker == workers - 1:
-            end = n
-        var i = start
-        while i + 4 * W <= end:
-            destination.store(
-                i, a.load[width=W](i) * b.load[width=W](i) + c.load[width=W](i)
-            )
-            destination.store(
-                i + W,
-                a.load[width=W](i + W) * b.load[width=W](i + W)
-                + c.load[width=W](i + W),
-            )
-            destination.store(
-                i + 2 * W,
-                a.load[width=W](i + 2 * W) * b.load[width=W](i + 2 * W)
-                + c.load[width=W](i + 2 * W),
-            )
-            destination.store(
-                i + 3 * W,
-                a.load[width=W](i + 3 * W) * b.load[width=W](i + 3 * W)
-                + c.load[width=W](i + 3 * W),
-            )
-            i += 4 * W
-        while i + W <= end:
-            destination.store(
-                i, a.load[width=W](i) * b.load[width=W](i) + c.load[width=W](i)
-            )
-            i += W
-        while i < end:
-            destination[i] = a[i] * b[i] + c[i]
-            i += 1
-
-    if workers > 1:
-        parallelize[process](workers, workers)
-    else:
-        process(0)
+    var i = 0
+    while i + 4 * W <= n:
+        destination.store(
+            i, a.load[width=W](i) * b.load[width=W](i) + c.load[width=W](i)
+        )
+        destination.store(
+            i + W,
+            a.load[width=W](i + W) * b.load[width=W](i + W)
+            + c.load[width=W](i + W),
+        )
+        destination.store(
+            i + 2 * W,
+            a.load[width=W](i + 2 * W) * b.load[width=W](i + 2 * W)
+            + c.load[width=W](i + 2 * W),
+        )
+        destination.store(
+            i + 3 * W,
+            a.load[width=W](i + 3 * W) * b.load[width=W](i + 3 * W)
+            + c.load[width=W](i + 3 * W),
+        )
+        i += 4 * W
+    while i + W <= n:
+        destination.store(
+            i, a.load[width=W](i) * b.load[width=W](i) + c.load[width=W](i)
+        )
+        i += W
+    while i < n:
+        destination[i] = a[i] * b[i] + c[i]
+        i += 1
 
 
 @export("mne_polynomial_f64")
@@ -106,47 +86,29 @@ def mne_polynomial_f64(
     c_addr: Int,
     dst_addr: Int,
     n: Int,
-    requested_workers: Int,
 ) abi("C"):
     var a = F64Ptr(unsafe_from_address=a_addr)
     var b = F64Ptr(unsafe_from_address=b_addr)
     var c = F64Ptr(unsafe_from_address=c_addr)
     var destination = F64Ptr(unsafe_from_address=dst_addr)
-    var workers = min(requested_workers, num_physical_cores())
-    if n < PARALLEL_ELEMENTS:
-        workers = 1
-    workers = max(workers, 1)
-
-    @parameter
-    def process(worker: Int):
-        var vectors = n // W
-        var start = (worker * vectors // workers) * W
-        var end = ((worker + 1) * vectors // workers) * W
-        if worker == workers - 1:
-            end = n
-        var i = start
-        while i + W <= end:
-            var av = a.load[width=W](i)
-            var bv = b.load[width=W](i)
-            var cv = c.load[width=W](i)
-            destination.store(
-                i, av + bv * cv + av * av - bv * bv + cv * cv * 0.25
-            )
-            i += W
-        while i < end:
-            destination[i] = (
-                a[i]
-                + b[i] * c[i]
-                + a[i] * a[i]
-                - b[i] * b[i]
-                + c[i] * c[i] * 0.25
-            )
-            i += 1
-
-    if workers > 1:
-        parallelize[process](workers, workers)
-    else:
-        process(0)
+    var i = 0
+    while i + W <= n:
+        var av = a.load[width=W](i)
+        var bv = b.load[width=W](i)
+        var cv = c.load[width=W](i)
+        destination.store(
+            i, av + bv * cv + av * av - bv * bv + cv * cv * 0.25
+        )
+        i += W
+    while i < n:
+        destination[i] = (
+            a[i]
+            + b[i] * c[i]
+            + a[i] * a[i]
+            - b[i] * b[i]
+            + c[i] * c[i] * 0.25
+        )
+        i += 1
 
 
 @export("mne_transcendental_f64")
@@ -156,41 +118,23 @@ def mne_transcendental_f64(
     c_addr: Int,
     dst_addr: Int,
     n: Int,
-    requested_workers: Int,
 ) abi("C"):
     var a = F64Ptr(unsafe_from_address=a_addr)
     var b = F64Ptr(unsafe_from_address=b_addr)
     var c = F64Ptr(unsafe_from_address=c_addr)
     var destination = F64Ptr(unsafe_from_address=dst_addr)
-    var workers = min(requested_workers, num_physical_cores())
-    if n < PARALLEL_ELEMENTS:
-        workers = 1
-    workers = max(workers, 1)
-
-    @parameter
-    def process(worker: Int):
-        var vectors = n // W
-        var start = (worker * vectors // workers) * W
-        var end = ((worker + 1) * vectors // workers) * W
-        if worker == workers - 1:
-            end = n
-        var i = start
-        while i + W <= end:
-            destination.store(
-                i,
-                sin(a.load[width=W](i))
-                + cos(b.load[width=W](i))
-                + exp(-abs(c.load[width=W](i))),
-            )
-            i += W
-        while i < end:
-            destination[i] = sin(a[i]) + cos(b[i]) + exp(-abs(c[i]))
-            i += 1
-
-    if workers > 1:
-        parallelize[process](workers, workers)
-    else:
-        process(0)
+    var i = 0
+    while i + W <= n:
+        destination.store(
+            i,
+            sin(a.load[width=W](i))
+            + cos(b.load[width=W](i))
+            + exp(-abs(c.load[width=W](i))),
+        )
+        i += W
+    while i < n:
+        destination[i] = sin(a[i]) + cos(b[i]) + exp(-abs(c[i]))
+        i += 1
 
 
 @export("mne_conditional_f64")
@@ -200,44 +144,26 @@ def mne_conditional_f64(
     c_addr: Int,
     dst_addr: Int,
     n: Int,
-    requested_workers: Int,
 ) abi("C"):
     var a = F64Ptr(unsafe_from_address=a_addr)
     var b = F64Ptr(unsafe_from_address=b_addr)
     var c = F64Ptr(unsafe_from_address=c_addr)
     var destination = F64Ptr(unsafe_from_address=dst_addr)
-    var workers = min(requested_workers, num_physical_cores())
-    if n < PARALLEL_ELEMENTS:
-        workers = 1
-    workers = max(workers, 1)
-
-    @parameter
-    def process(worker: Int):
-        var vectors = n // W
-        var start = (worker * vectors // workers) * W
-        var end = ((worker + 1) * vectors // workers) * W
-        if worker == workers - 1:
-            end = n
-        var i = start
-        while i + W <= end:
-            var av = a.load[width=W](i)
-            var bv = b.load[width=W](i)
-            var cv = c.load[width=W](i)
-            destination.store(
-                i, cv.gt(0.0).select(av * bv + cv, av / bv - cv)
-            )
-            i += W
-        while i < end:
-            if c[i] > 0.0:
-                destination[i] = a[i] * b[i] + c[i]
-            else:
-                destination[i] = a[i] / b[i] - c[i]
-            i += 1
-
-    if workers > 1:
-        parallelize[process](workers, workers)
-    else:
-        process(0)
+    var i = 0
+    while i + W <= n:
+        var av = a.load[width=W](i)
+        var bv = b.load[width=W](i)
+        var cv = c.load[width=W](i)
+        destination.store(
+            i, cv.gt(0.0).select(av * bv + cv, av / bv - cv)
+        )
+        i += W
+    while i < n:
+        if c[i] > 0.0:
+            destination[i] = a[i] * b[i] + c[i]
+        else:
+            destination[i] = a[i] / b[i] - c[i]
+        i += 1
 
 
 @always_inline
@@ -479,10 +405,10 @@ def mne_evaluate(
     ndim: Int,
     dst_addr: Int,
     result_bool: Int,
-    n: Int,
-    requested_workers: Int,
+    start: Int,
+    count: Int,
 ) abi("C") -> Int:
-    if code_count < 1 or code_count > 256 or ndim < 1 or ndim > 8 or n < 0:
+    if code_count < 1 or code_count > 256 or ndim < 1 or ndim > 8 or count < 0:
         return 1
     var code = I64Ptr(unsafe_from_address=code_addr)
     var constants = F64Ptr(unsafe_from_address=constants_addr)
@@ -490,39 +416,13 @@ def mne_evaluate(
     var dtypes = I64Ptr(unsafe_from_address=dtypes_addr)
     var strides = I64Ptr(unsafe_from_address=strides_addr)
     var shape = I64Ptr(unsafe_from_address=shape_addr)
-    var workers = min(requested_workers, num_physical_cores())
-    if n < PARALLEL_ELEMENTS:
-        workers = 1
-    workers = max(workers, 1)
-
-    @parameter
-    def process(worker: Int):
-        var vectors = n // W
-        var start = (worker * vectors // workers) * W
-        var end = ((worker + 1) * vectors // workers) * W
-        if worker == workers - 1:
-            end = n
-        var i = start
-        if result_bool == 0:
-            var destination = F64Ptr(unsafe_from_address=dst_addr)
-            while i + W <= end:
-                destination.store(
-                    i,
-                    execute_chunk[W](
-                        code,
-                        code_count,
-                        constants,
-                        addresses,
-                        dtypes,
-                        strides,
-                        shape,
-                        ndim,
-                        i,
-                    ),
-                )
-                i += W
-            while i < end:
-                destination[i] = execute_chunk[1](
+    var i = 0
+    if result_bool == 0:
+        var destination = F64Ptr(unsafe_from_address=dst_addr)
+        while i + W <= count:
+            destination.store(
+                i,
+                execute_chunk[W](
                     code,
                     code_count,
                     constants,
@@ -531,46 +431,55 @@ def mne_evaluate(
                     strides,
                     shape,
                     ndim,
-                    i,
-                )[0]
-                i += 1
-        else:
-            var destination = U8Ptr(unsafe_from_address=dst_addr)
-            while i + W <= end:
-                destination.store(
-                    i,
-                    execute_chunk[W](
-                        code,
-                        code_count,
-                        constants,
-                        addresses,
-                        dtypes,
-                        strides,
-                        shape,
-                        ndim,
-                        i,
-                    ).cast[DType.uint8](),
-                )
-                i += W
-            while i < end:
-                destination[i] = UInt8(
-                    execute_chunk[1](
-                        code,
-                        code_count,
-                        constants,
-                        addresses,
-                        dtypes,
-                        strides,
-                        shape,
-                        ndim,
-                        i,
-                    )[0]
-                    != 0.0
-                )
-                i += 1
-
-    if workers > 1:
-        parallelize[process](workers, workers)
+                    start + i,
+                ),
+            )
+            i += W
+        while i < count:
+            destination[i] = execute_chunk[1](
+                code,
+                code_count,
+                constants,
+                addresses,
+                dtypes,
+                strides,
+                shape,
+                ndim,
+                start + i,
+            )[0]
+            i += 1
     else:
-        process(0)
+        var destination = U8Ptr(unsafe_from_address=dst_addr)
+        while i + W <= count:
+            destination.store(
+                i,
+                execute_chunk[W](
+                    code,
+                    code_count,
+                    constants,
+                    addresses,
+                    dtypes,
+                    strides,
+                    shape,
+                    ndim,
+                    start + i,
+                ).cast[DType.uint8](),
+            )
+            i += W
+        while i < count:
+            destination[i] = UInt8(
+                execute_chunk[1](
+                    code,
+                    code_count,
+                    constants,
+                    addresses,
+                    dtypes,
+                    strides,
+                    shape,
+                    ndim,
+                    start + i,
+                )[0]
+                != 0.0
+            )
+            i += 1
     return 0
